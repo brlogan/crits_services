@@ -154,7 +154,10 @@ class STIXParser():
                         raise STIXParserException("STIX package failure")
                 except UnsupportedVersionError:
                     v = stix.__version__
-                    v = v[0:-2] if len(v.split('.')) > 3 else v
+                    if len(v.split('.')) > 3:
+                        v = v[0:-2]
+                        if v[-1] == '0':
+                            v = v[0:-2]
                     updated = ramrod.update(f, to_=v)
                     doc = updated.document.as_stringio()
                     self.package = STIXPackage.from_xml(doc)
@@ -522,7 +525,7 @@ class STIXParser():
 
             # store relationships
             if not self.preview:
-                for rel in getattr(indicator, 'related_indicators', ()):
+                for rel in getattr(indicator, 'related_indicators', ()) or ():
                     if rel.confidence:
                         conf = rel.confidence.value.value
                     else:
@@ -649,35 +652,36 @@ class STIXParser():
                     txC = taxii.TaxiiContent
                     refQ = 'id="' + ob.idref
                     xmlblock = txC.objects(content__contains=refQ).first()
-                    with closing(StringIO(xmlblock.content)) as f:
-                        ref_pkg = STIXPackage.from_xml(f)
-                    if 'Observable' in ob.idref:
-                        self.parse_observables(ref_pkg.observables.observables,
-                                               description, is_ind, ind_id, ind_ci)
+                    if xmlblock:
+                        with closing(StringIO(xmlblock.content)) as f:
+                            ref_pkg = STIXPackage.from_xml(f)
+                        if 'Observable' in ob.idref:
+                            self.parse_observables(ref_pkg.observables.observables,
+                                                   description, is_ind, ind_id, ind_ci)
 
-                        if self.preview: # no need to store relationship if just a preview
-                            continue
+                            if self.preview: # no need to store relationship if just a preview
+                                continue
 
-                        if ref_pkg.observables.observables[0].object_:
-                            cbxid = ref_pkg.observables.observables[0].object_.id_
-                            self.idMap.setdefault(ob.idref, []).append(cbxid)
-                        elif ref_pkg.observables.observables[0].idref in self.idMap:
-                            subref = ref_pkg.observables.observables[0].idref
-                            self.idMap.setdefault(ob.idref, []).extend(self.idMap.pop(subref))
+                            if ref_pkg.observables.observables[0].object_:
+                                cbxid = ref_pkg.observables.observables[0].object_.id_
+                                self.idMap.setdefault(ob.idref, []).append(cbxid)
+                            elif ref_pkg.observables.observables[0].idref in self.idMap:
+                                subref = ref_pkg.observables.observables[0].idref
+                                self.idMap.setdefault(ob.idref, []).extend(self.idMap.pop(subref))
                     continue
 
-                elif ob._observable_composition: # parse observable composition.
+                elif ob.observable_composition: # parse observable composition.
                     # CRITs doesn't support complex boolean relationships like
                     # ((A OR B) AND C). This code simply imports all observables
                     # and forms "Related_To" relationships between them
-                    self.parse_observables(ob._observable_composition.observables,
+                    self.parse_observables(ob.observable_composition.observables,
                                            description, is_ind, ind_id, ind_ci)
                     rel_ids = []
 
                     if self.preview: # no need to store relationship if just a preview
                         continue
 
-                    for com_ob in ob._observable_composition.observables:
+                    for com_ob in ob.observable_composition.observables:
                         if com_ob.object_:
                             rel_ids.append(com_ob.object_.id_)
                         else:
@@ -993,7 +997,7 @@ class STIXParser():
                 if item.file_path: # save the path in the description field
                     path = "File Path: " + str(item.file_path)
                     description += "\n" + path
-                for rel_obj in item.parent.related_objects:
+                for rel_obj in item.parent.related_objects or ():
                     if (isinstance(rel_obj.properties, Artifact) and
                         rel_obj.properties.type_ == Artifact.TYPE_FILE):
                         data = rel_obj.properties.data
@@ -1041,7 +1045,7 @@ class STIXParser():
                     val = cbx_obj.id_
                     msg = "CybOX 'File' object has no hashes, data, or filename"
                     res = {'success': False, 'reason': msg}
-                    self.parse_res(imp_type, None, cbx_obj, res, ind_id)
+                    self.parse_res(imp_type, val, cbx_obj, res, ind_id)
             elif isinstance(item, EmailMessage):
                 imp_type = 'Email'
                 id_list = []
@@ -1246,7 +1250,7 @@ class STIXParser():
                                 cbx_obj.id_)) # note for display in UI
 
         # parse any related CybOX object(s)
-        for rel_obj in cbx_obj.related_objects:
+        for rel_obj in cbx_obj.related_objects or ():
             self.parse_cybox_object(rel_obj, description, is_ind, ind_id, ind_ci)
             self.relationships.append((cbx_obj.id_, rel_obj.relationship.value,
                                        rel_obj.id_ or rel_obj.idref, "High"))
