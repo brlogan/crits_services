@@ -1125,7 +1125,10 @@ def import_content(content_objs, analyst, action=None):
             block.errors.append('%s: %s' % (k[1], k[0]))
 
         if block.import_failed:
-            block.save()
+            try: # Command-line imports won't have all required metadata
+                block.save()
+            except: # No need to save, user can re-try
+                pass
         else:
             try:
                 block.delete() # delete it if it exists in the DB

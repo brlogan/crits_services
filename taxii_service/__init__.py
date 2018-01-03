@@ -8,7 +8,8 @@ from django.utils.safestring import SafeText
 from crits.core.handlers import does_source_exist
 from crits.services.core import Service, ServiceConfigError
 
-from . import forms, handlers
+from . import forms
+from .handlers import import_standards_doc, process_stix_upload
 
 logger = logging.getLogger("crits." + __name__)
 
@@ -187,45 +188,90 @@ class TAXIIClient(Service):
 
 
     @staticmethod
+    def import_stix_file(data, analyst, source, reference, use_hdr_src=True):
+        """
+        Take a file-like object, parse the STIX data, and import into
+        CRITs.  If given a path to a file (SITX file or .zip of STIX
+        files), open the file and then use the file-like object.
+
+        :param data: The full path to the file or a file-like object.
+        :type : str or file-like object
+        :param analyst: The analyst's username.
+        :type analyst: str
+        :param source: The name of the CRITs Source associated with this data.
+        :type source: str
+        :param reference: A reference to the data's source.
+        :type reference: str
+        :param use_hdr_src: If True, try to use STIX Header Information Source
+                            instead of the "source" & "reference" parameters.
+        :type use_hdr_src: boolean
+        :returns: dict
+        """
+
+        if isinstance(data, basestring): # should be a file path
+            try:
+                with open(data, 'r') as f:
+                    ret = process_stix_upload(f, analyst, source, reference,
+                                              use_hdr_src, import_now=True)
+            except IOError as e:
+                ret = {'status': False,
+                       'msg': 'Error reading STIX file - %s' % e}
+
+        else: # should be a file-like object
+            ret = process_stix_upload(data, analyst, source, reference,
+                                      use_hdr_src, import_now=True)
+
+        return ret
+
+
+    @staticmethod
     def import_stix(data, analyst, source, reference, method="STIX Import",
-                    hdr_events=True, use_hdr_src=True, obs_as_ind=False):
+                    hdr_events=True, use_hdr_src=True, obs_as_ind=False,
+                    preview_only=False):
         """
-            If given the path to a file (SITX file or .zip of STIX files), open
-            the file. Take file-like object, parse the STIX data, and import
-            into CRITs.
+        Given a string of STIX data, parse the STIX data. If preview_only
+        is False, return a preview of what TLOs would be imported,
+        otherwise import.
 
-            :param data: The full path to the file or a file-like object.
-            :type : str or
-            :param analyst: The analyst's username.
-            :type analyst: str
-            :param source: The name of the CRITs Source assocaited with this data.
-            :type source: str
-            :param reference: A reference to the data's source.
-            :type reference: str
-            :param method: The method of acquiring or importing this document.
-            :type method: str
-            :param hdr_events: Whether or not we should make an Event for this document.
-            :type hdr_events: bool
-            :param use_hdr_src: If True, try to use STIX Header Information Source
-                                instead of the "source" & "reference" parameters.
-            :type use_hdr_src: boolean
-            :returns: dict
+        :param data: The STIX data.
+        :type : str
+        :param analyst: The analyst's username.
+        :type analyst: str
+        :param source: The name of the CRITs Source associated with this data.
+        :type source: str
+        :param reference: A reference to the data's source.
+        :type reference: str
+        :param method: The method of acquiring or importing this document.
+        :type method: str
+        :param hdr_events: If True, create an Event from the STIX header
+        :type hdr_events: boolean
+        :param use_hdr_src: If True, try to use STIX Header Information Source
+                            instead of the "source" & "reference" parameters.
+        :type use_hdr_src: boolean
+        :param obs_as_ind: If True, create an Indicator TLO for any STIX
+                           observable
+        :type obs_as_ind: boolean
+        :param preview_only: If True, nothing is imported and a preview is returned
+        :type preview_only: boolean
+
+        :returns: dict with keys:
+                  "success" (boolean),
+                  "reason" (str),
+                  "imported" (list),
+                  "failed" (list)
         """
 
-        if isinstance(data, basestring):
-            ret = handlers.import_standards_doc(data, analyst, method,
-                                                reference, hdr_events,
-                                                source=source,
-                                                use_hdr_src=use_hdr_src,
-                                                obs_as_ind=obs_as_ind)
-            return ret
-        try:
-            with open(data, 'r') as f:
-                ret = handlers.process_stix_upload(f, analyst, source, reference,
-                                                   use_hdr_src, import_now=True)
-        except IOError as e:
-            ret = {'status': False,
-                   'msg': 'Error reading STIX file - %s' % e}
+        if isinstance(data, basestring): # should be a string
+            ret = import_standards_doc(data, analyst, method, reference,
+                                       hdr_events, source=source,
+                                       use_hdr_src=use_hdr_src,
+                                       obs_as_ind=obs_as_ind,
+                                       preview_only=preview_only)
+        else:
+            ret = {'success': False,
+                   'reason': 'Expected STIX basestring, got %s' % type(data),
+                   'imported': [],
+                   'failed': []}
         return ret
 
 
